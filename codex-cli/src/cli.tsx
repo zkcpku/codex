@@ -28,6 +28,11 @@ import type { ReasoningEffort } from "openai/resources.mjs";
 import App from "./app";
 import { runSinglePass } from "./cli-singlepass";
 import SessionsOverlay from "./components/sessions-overlay.js";
+import {
+  formatResponseItemForQuietMode,
+  getAssistantTextFromResponseItem,
+  writeLastAssistantMessage,
+} from "./quiet-mode.js";
 import { AgentLoop } from "./utils/agent/agent-loop";
 import { ReviewDecision } from "./utils/agent/review";
 import { AutoApprovalMode } from "./utils/auto-approval-mode";
@@ -44,7 +49,6 @@ import {
 import { createInputItem } from "./utils/input-utils";
 import { initLogger } from "./utils/logger/log";
 import { isModelSupportedForResponses } from "./utils/model-utils.js";
-import { parseToolCall } from "./utils/parsers";
 import { providers } from "./utils/providers";
 import { onExit, setInkRenderer } from "./utils/terminal";
 import chalk from "chalk";
@@ -59,11 +63,6 @@ import React from "react";
 // Call this early so `tail -F "$TMPDIR/oai-codex/codex-cli-latest.log"` works
 // immediately. This must be run with DEBUG=1 for logging to work.
 initLogger();
-
-// TODO: migrate to new versions of quiet mode
-//
-//     -q, --quiet    Non-interactive quiet mode that only prints final message
-//     -j, --json     Non-interactive JSON output mode that prints JSON messages
 
 const cli = meow(
   `
@@ -82,7 +81,9 @@ const cli = meow(
     --history                       Browse previous sessions
     --login                         Start a new sign in flow
     --free                          Retry redeeming free credits
-    -q, --quiet                     Non-interactive mode that only prints the assistant's final output
+    -q, --quiet                     Non-interactive mode with readable output
+    -j, --json                      Non-interactive JSONL output mode
+    -o, --output-last-message <f>   Write the final assistant message to a file
     -c, --config                    Open the instructions file in your editor
     -w, --writable-root <path>      Writable folder for sandbox in full-auto mode (can be specified multiple times)
     -a, --approval-mode <mode>      Override the approval policy: 'suggest', 'auto-edit', or 'full-auto'
@@ -136,6 +137,16 @@ const cli = meow(
         type: "boolean",
         aliases: ["q"],
         description: "Non-interactive quiet mode",
+      },
+      json: {
+        type: "boolean",
+        aliases: ["j"],
+        description: "Emit JSONL response items in non-interactive mode",
+      },
+      outputLastMessage: {
+        type: "string",
+        aliases: ["o"],
+        description: "Write the final assistant message to a file",
       },
       config: {
         type: "boolean",
@@ -546,13 +557,13 @@ const additionalWritableRoots: ReadonlyArray<string> = (
   cli.flags.writableRoot ?? []
 ).map((p) => path.resolve(p));
 
-// For --quiet, run the cli without user interactions and exit.
-if (cli.flags.quiet) {
+// For --quiet/--json, run the cli without user interactions and exit.
+if (cli.flags.quiet || cli.flags.json) {
   process.env["CODEX_QUIET_MODE"] = "1";
   if (!prompt || prompt.trim() === "") {
     // eslint-disable-next-line no-console
     console.error(
-      'Quiet mode requires a prompt string, e.g.,: codex -q "Fix bug #123 in the foobar project"',
+      'Non-interactive mode requires a prompt string, e.g.,: codex -q "Fix bug #123 in the foobar project"',
     );
     process.exit(1);
   }
@@ -571,6 +582,8 @@ if (cli.flags.quiet) {
     approvalPolicy: quietApprovalPolicy,
     additionalWritableRoots,
     config,
+    format: cli.flags.json ? "json" : "human",
+    outputLastMessagePath: cli.flags.outputLastMessage,
   });
   onExit();
   process.exit(0);
@@ -612,68 +625,24 @@ const instance = render(
 );
 setInkRenderer(instance);
 
-function formatResponseItemForQuietMode(item: ResponseItem): string {
-  if (!PRETTY_PRINT) {
-    return JSON.stringify(item);
-  }
-  switch (item.type) {
-    case "message": {
-      const role = item.role === "assistant" ? "assistant" : item.role;
-      const txt = item.content
-        .map((c) => {
-          if (c.type === "output_text" || c.type === "input_text") {
-            return c.text;
-          }
-          if (c.type === "input_image") {
-            return "<Image>";
-          }
-          if (c.type === "input_file") {
-            return c.filename;
-          }
-          if (c.type === "refusal") {
-            return c.refusal;
-          }
-          return "?";
-        })
-        .join(" ");
-      return `${role}: ${txt}`;
-    }
-    case "function_call": {
-      const details = parseToolCall(item);
-      return `$ ${details?.cmdReadableText ?? item.name}`;
-    }
-    case "function_call_output": {
-      // @ts-expect-error metadata unknown on ResponseFunctionToolCallOutputItem
-      const meta = item.metadata as ExecOutputMetadata;
-      const parts: Array<string> = [];
-      if (typeof meta?.exit_code === "number") {
-        parts.push(`code: ${meta.exit_code}`);
-      }
-      if (typeof meta?.duration_seconds === "number") {
-        parts.push(`duration: ${meta.duration_seconds}s`);
-      }
-      const header = parts.length > 0 ? ` (${parts.join(", ")})` : "";
-      return `command.stdout${header}\n${item.output}`;
-    }
-    default: {
-      return JSON.stringify(item);
-    }
-  }
-}
-
 async function runQuietMode({
   prompt,
   imagePaths,
   approvalPolicy,
   additionalWritableRoots,
   config,
+  format,
+  outputLastMessagePath,
 }: {
   prompt: string;
   imagePaths: Array<string>;
   approvalPolicy: ApprovalPolicy;
   additionalWritableRoots: ReadonlyArray<string>;
   config: AppConfig;
+  format: "human" | "json";
+  outputLastMessagePath?: string;
 }): Promise<void> {
+  let lastAssistantMessage: string | undefined;
   const agent = new AgentLoop({
     model: config.model,
     config: config,
@@ -683,8 +652,17 @@ async function runQuietMode({
     additionalWritableRoots,
     disableResponseStorage: config.disableResponseStorage,
     onItem: (item: ResponseItem) => {
+      const assistantText = getAssistantTextFromResponseItem(item);
+      if (assistantText) {
+        lastAssistantMessage = assistantText;
+      }
       // eslint-disable-next-line no-console
-      console.log(formatResponseItemForQuietMode(item));
+      console.log(
+        formatResponseItemForQuietMode(item, {
+          format,
+          prettyPrint: PRETTY_PRINT,
+        }),
+      );
     },
     onLoading: () => {
       /* intentionally ignored in quiet mode */
@@ -706,6 +684,9 @@ async function runQuietMode({
 
   const inputItem = await createInputItem(prompt, imagePaths);
   await agent.run([inputItem]);
+  if (outputLastMessagePath && lastAssistantMessage) {
+    writeLastAssistantMessage(outputLastMessagePath, lastAssistantMessage);
+  }
 }
 
 const exit = () => {

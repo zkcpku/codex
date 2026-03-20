@@ -222,10 +222,11 @@ The hardening mechanism Codex uses depends on your OS:
 | ------------------------------------ | ----------------------------------- | ------------------------------------ |
 | `codex`                              | Interactive REPL                    | `codex`                              |
 | `codex "..."`                        | Initial prompt for interactive REPL | `codex "fix lint errors"`            |
-| `codex -q "..."`                     | Non-interactive "quiet mode"        | `codex -q --json "explain utils.ts"` |
+| `codex -q "..."`                     | Non-interactive readable output     | `codex -q "explain utils.ts"`        |
+| `codex -j "..."`                     | Non-interactive JSONL output        | `codex -j -o final.txt "fix tests"`  |
 | `codex completion <bash\|zsh\|fish>` | Print shell completion script       | `codex completion bash`              |
 
-Key flags: `--model/-m`, `--approval-mode/-a`, `--quiet/-q`, and `--notify`.
+Key flags: `--model/-m`, `--approval-mode/-a`, `--quiet/-q`, `--json/-j`, `--output-last-message/-o`, and `--notify`.
 
 ---
 
