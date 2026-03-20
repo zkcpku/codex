@@ -158,4 +158,96 @@ describe("ExecJsonEventFormatter", () => {
       },
     ]);
   });
+
+  it("produces a Rust-like JSONL stream for a successful turn", () => {
+    const formatter = new ExecJsonEventFormatter("thread-123");
+    const events = [
+      formatter.threadStarted(),
+      formatter.turnStarted(),
+      ...formatter.eventsForItem({
+        id: "fc_1",
+        type: "function_call",
+        call_id: "call_1",
+        name: "shell",
+        arguments: JSON.stringify({ cmd: ["echo", "hello"] }),
+        status: "completed",
+      } as ResponseItem),
+      ...formatter.eventsForItem({
+        id: "fco_1",
+        type: "function_call_output",
+        call_id: "call_1",
+        output: "hello\n",
+      } as ResponseItem),
+      ...formatter.eventsForItem({
+        id: "msg_1",
+        status: "completed",
+        type: "message",
+        role: "assistant",
+        content: [
+          { type: "output_text", text: "done", annotations: [] },
+        ],
+      } as ResponseItem),
+      formatter.turnCompleted(),
+    ];
+
+    expect(events.map((event) => JSON.stringify(event))).toEqual([
+      JSON.stringify({ type: "thread.started", thread_id: "thread-123" }),
+      JSON.stringify({ type: "turn.started" }),
+      JSON.stringify({
+        type: "item.started",
+        item: {
+          id: "fc_1",
+          type: "command_execution",
+          command: "echo hello",
+          aggregated_output: "",
+          exit_code: null,
+          status: "in_progress",
+        },
+      }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          id: "fco_1",
+          type: "command_execution",
+          command: "echo hello",
+          aggregated_output: "hello\n",
+          exit_code: 0,
+          status: "completed",
+        },
+      }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          id: "msg_1",
+          type: "agent_message",
+          text: "done",
+        },
+      }),
+      JSON.stringify({
+        type: "turn.completed",
+        usage: {
+          input_tokens: 0,
+          cached_input_tokens: 0,
+          output_tokens: 0,
+        },
+      }),
+    ]);
+  });
+
+  it("produces a Rust-like JSONL stream for a failed turn", () => {
+    const formatter = new ExecJsonEventFormatter("thread-123");
+    const events = [
+      formatter.threadStarted(),
+      formatter.turnStarted(),
+      formatter.streamError("boom"),
+      formatter.turnFailed("boom"),
+    ];
+
+    expect(events.map((event) => JSON.stringify(event))).toEqual([
+      JSON.stringify({ type: "thread.started", thread_id: "thread-123" }),
+      JSON.stringify({ type: "turn.started" }),
+      JSON.stringify({ type: "error", message: "boom" }),
+      JSON.stringify({ type: "turn.failed", error: { message: "boom" } }),
+    ]);
+  });
 });
