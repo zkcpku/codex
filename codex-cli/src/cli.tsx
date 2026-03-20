@@ -30,6 +30,7 @@ import { getAuthStatus, readStoredAuth, removeStoredAuth } from "./auth.js";
 import { applyPatchesFromRollout } from "./apply-command.js";
 import { runSinglePass } from "./cli-singlepass";
 import SessionsOverlay from "./components/sessions-overlay.js";
+import { buildExecResumePrompt, parseExecPrompt } from "./exec-command.js";
 import {
   formatResponseItemForQuietMode,
   getAssistantTextFromResponseItem,
@@ -80,6 +81,8 @@ const cli = meow(
     $ codex login
     $ codex login status
     $ codex logout
+    $ codex exec [prompt]
+    $ codex exec resume [session] [prompt]
     $ codex apply [session]
     $ codex resume [session] [prompt]
     $ codex fork [session] [prompt]
@@ -350,6 +353,8 @@ const subcommand = cli.input[0];
 const loginMode = subcommand === "login";
 const loginStatusMode = loginMode && cli.input[1] === "status";
 const logoutMode = subcommand === "logout";
+const execMode = subcommand === "exec";
+const execResumeMode = execMode && cli.input[1] === "resume";
 const applyMode = subcommand === "apply";
 const reviewMode = subcommand === "review";
 const resumeMode = subcommand === "resume";
@@ -357,7 +362,10 @@ const forkMode = subcommand === "fork";
 let prompt = reviewMode || resumeMode || forkMode
   ? cli.input.slice(1).join(" ").trim()
   : cli.input[0];
-if (loginMode || logoutMode || applyMode) {
+if (execMode && !execResumeMode) {
+  prompt = parseExecPrompt(cli.input.slice(1));
+}
+if (loginMode || logoutMode || applyMode || execResumeMode) {
   prompt = undefined;
 }
 if (prompt === "") {
@@ -454,6 +462,65 @@ if (applyMode) {
     process.exit(1);
   }
   process.exit(0);
+}
+
+if (execResumeMode) {
+  const resumeArgs = parseResumePositionalArgs({
+    positional: cli.input.slice(2),
+    last: Boolean(cli.flags.last),
+  });
+  let resumePrompt = resumeArgs.prompt;
+  if (resumePrompt === "-") {
+    resumePrompt = fs.readFileSync(0, "utf8").trim();
+  }
+  const explicitSession = resumeArgs.sessionIdOrPath;
+  let sessionPath: string | undefined;
+  if (explicitSession || cli.flags.last) {
+    sessionPath = await resolveSessionPath({
+      sessionIdOrPath: explicitSession,
+      last: Boolean(cli.flags.last),
+    });
+    if (!sessionPath) {
+      // eslint-disable-next-line no-console
+      console.error("Unable to resolve the requested session to resume.");
+      process.exit(1);
+    }
+  } else {
+    const result: { path: string; mode: "resume" } | null = await new Promise(
+      (resolve) => {
+        const instance = render(
+          React.createElement(SessionsOverlay, {
+            onView: () => {},
+            onResume: (p: string) => {
+              instance.unmount();
+              resolve({ path: p, mode: "resume" });
+            },
+            onFork: () => {},
+            onApply: () => {},
+            modes: ["resume"],
+            initialMode: "resume",
+            onExit: () => {
+              instance.unmount();
+              resolve(null);
+            },
+          }),
+        );
+      },
+    );
+
+    if (!result) {
+      process.exit(0);
+    }
+    sessionPath = result.path;
+  }
+
+  prompt = resumePrompt === undefined
+    ? buildExecResumePrompt({
+        positional: cli.input.slice(2),
+        last: Boolean(cli.flags.last),
+        sessionPath,
+      })
+    : buildResumePrompt(sessionPath, resumePrompt);
 }
 
 if (logoutMode) {
@@ -860,12 +927,12 @@ const additionalWritableRoots: ReadonlyArray<string> = (
 ).map((p) => path.resolve(p));
 
 // For --quiet/--json, run the cli without user interactions and exit.
-if (cli.flags.quiet || cli.flags.json) {
+if (cli.flags.quiet || cli.flags.json || execMode) {
   process.env["CODEX_QUIET_MODE"] = "1";
   if (!prompt || prompt.trim() === "") {
     // eslint-disable-next-line no-console
     console.error(
-      'Non-interactive mode requires a prompt string, e.g.,: codex -q "Fix bug #123 in the foobar project"',
+      'Non-interactive mode requires a prompt string, e.g.,: codex exec "Fix bug #123 in the foobar project"',
     );
     process.exit(1);
   }

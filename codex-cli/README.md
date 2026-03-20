@@ -226,6 +226,7 @@ The hardening mechanism Codex uses depends on your OS:
 | `codex -j "..."`                     | Non-interactive JSONL output        | `codex -j -o final.txt "fix tests"`  |
 | `codex login status`                 | Show current login status           | `codex login status`                 |
 | `codex logout`                       | Remove stored Codex CLI login       | `codex logout`                       |
+| `codex exec "..."`                   | Run Codex non-interactively         | `codex exec -j "fix failing tests"`  |
 | `codex apply --last`                 | Apply patches from the latest session | `codex apply session-id`           |
 | `codex resume --last`                | Resume the latest saved session     | `codex resume session-id "continue"` |
 | `codex fork --last`                  | Fork the latest saved session       | `codex fork session-id "try another approach"` |
