@@ -26,6 +26,7 @@ import type { ResponseItem } from "openai/resources/responses/responses";
 import type { ReasoningEffort } from "openai/resources.mjs";
 
 import App from "./app";
+import { getAuthStatus, readStoredAuth, removeStoredAuth } from "./auth.js";
 import { runSinglePass } from "./cli-singlepass";
 import SessionsOverlay from "./components/sessions-overlay.js";
 import {
@@ -64,7 +65,6 @@ import { spawnSync } from "child_process";
 import fs from "fs";
 import { render } from "ink";
 import meow from "meow";
-import os from "os";
 import path from "path";
 import React from "react";
 
@@ -76,6 +76,9 @@ const cli = meow(
   `
   Usage
     $ codex [options] <prompt>
+    $ codex login
+    $ codex login status
+    $ codex logout
     $ codex resume [session] [prompt]
     $ codex fork [session] [prompt]
     $ codex review [--uncommitted|--base <branch>|--commit <sha>] [prompt]
@@ -342,12 +345,18 @@ let config = loadConfig(undefined, undefined, {
 // via the `--history` flag. Therefore it must be declared with `let` rather
 // than `const`.
 const subcommand = cli.input[0];
+const loginMode = subcommand === "login";
+const loginStatusMode = loginMode && cli.input[1] === "status";
+const logoutMode = subcommand === "logout";
 const reviewMode = subcommand === "review";
 const resumeMode = subcommand === "resume";
 const forkMode = subcommand === "fork";
 let prompt = reviewMode || resumeMode || forkMode
   ? cli.input.slice(1).join(" ").trim()
   : cli.input[0];
+if (loginMode || logoutMode) {
+  prompt = undefined;
+}
 if (prompt === "") {
   prompt = undefined;
 }
@@ -369,24 +378,46 @@ let savedTokens:
     }
   | undefined;
 
-// Try to load existing auth file if present
-try {
-  const home = os.homedir();
-  const authDir = path.join(home, ".codex");
-  const authFile = path.join(authDir, "auth.json");
-  if (fs.existsSync(authFile)) {
-    const data = JSON.parse(fs.readFileSync(authFile, "utf-8"));
-    savedTokens = data.tokens;
-    const lastRefreshTime = data.last_refresh
-      ? new Date(data.last_refresh).getTime()
-      : 0;
-    const expired = Date.now() - lastRefreshTime > 28 * 24 * 60 * 60 * 1000;
-    if (data.OPENAI_API_KEY && !expired) {
-      apiKey = data.OPENAI_API_KEY;
-    }
+const storedAuth = readStoredAuth();
+if (storedAuth?.tokens) {
+  savedTokens = {
+    id_token: storedAuth.tokens.id_token,
+    access_token: storedAuth.tokens.access_token,
+    refresh_token: storedAuth.tokens.refresh_token || "",
+  };
+}
+const authStatus = getAuthStatus();
+if (storedAuth?.OPENAI_API_KEY && !authStatus.expired) {
+  apiKey = storedAuth.OPENAI_API_KEY;
+}
+
+if (logoutMode) {
+  const removed = removeStoredAuth();
+  delete process.env["OPENAI_API_KEY"];
+  // eslint-disable-next-line no-console
+  console.log(
+    removed
+      ? "Logged out of Codex CLI."
+      : "No stored Codex CLI login was found.",
+  );
+  process.exit(0);
+}
+
+if (loginStatusMode) {
+  const status = getAuthStatus();
+  // eslint-disable-next-line no-console
+  console.log(status.exists ? "Login status: signed in" : "Login status: signed out");
+  // eslint-disable-next-line no-console
+  console.log(`Stored API key: ${status.apiKeyPresent ? "yes" : "no"}`);
+  // eslint-disable-next-line no-console
+  console.log(`Refresh token: ${status.refreshTokenPresent ? "yes" : "no"}`);
+  // eslint-disable-next-line no-console
+  console.log(`Credentials expired: ${status.expired ? "yes" : "no"}`);
+  if (status.lastRefresh) {
+    // eslint-disable-next-line no-console
+    console.log(`Last refresh: ${status.lastRefresh}`);
   }
-} catch {
-  // ignore errors
+  process.exit(0);
 }
 
 // Get provider-specific API key if not OpenAI
@@ -402,20 +433,20 @@ if (provider.toLowerCase() !== "openai") {
 
 // Only proceed with OpenAI auth flow if:
 // 1. Provider is OpenAI and no API key is set, or
-// 2. Login flag is explicitly set
-if (provider.toLowerCase() === "openai" && !apiKey) {
-  if (cli.flags.login) {
-    apiKey = await fetchApiKey(client.issuer, client.client_id);
-    try {
-      const home = os.homedir();
-      const authDir = path.join(home, ".codex");
-      const authFile = path.join(authDir, "auth.json");
-      if (fs.existsSync(authFile)) {
-        const data = JSON.parse(fs.readFileSync(authFile, "utf-8"));
-        savedTokens = data.tokens;
-      }
-    } catch {
-      /* ignore */
+// 2. Login is explicitly requested
+if (
+  provider.toLowerCase() === "openai" &&
+  (!apiKey || loginMode || cli.flags.login)
+) {
+  if (loginMode || cli.flags.login) {
+    apiKey = await fetchApiKey(client.issuer, client.client_id, true);
+    const updatedAuth = readStoredAuth();
+    if (updatedAuth?.tokens) {
+      savedTokens = {
+        id_token: updatedAuth.tokens.id_token,
+        access_token: updatedAuth.tokens.access_token,
+        refresh_token: updatedAuth.tokens.refresh_token || "",
+      };
     }
   } else {
     apiKey = await fetchApiKey(client.issuer, client.client_id);
@@ -440,6 +471,12 @@ if (cli.flags.free && provider.toLowerCase() === "openai") {
       savedTokens.id_token,
     );
   }
+}
+
+if (loginMode) {
+  // eslint-disable-next-line no-console
+  console.log("Logged in to Codex CLI.");
+  process.exit(0);
 }
 
 // Set of providers that don't require API keys
