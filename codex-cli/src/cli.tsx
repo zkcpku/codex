@@ -31,6 +31,7 @@ import { applyPatchesFromRollout } from "./apply-command.js";
 import { runSinglePass } from "./cli-singlepass";
 import SessionsOverlay from "./components/sessions-overlay.js";
 import { buildExecResumePrompt, parseExecPrompt } from "./exec-command.js";
+import { ExecJsonEventFormatter } from "./exec-json.js";
 import { loadOutputSchemaValidator } from "./output-schema.js";
 import {
   formatResponseItemForQuietMode,
@@ -1035,6 +1036,7 @@ async function runQuietMode({
   outputSchemaValidator?: ReturnType<typeof loadOutputSchemaValidator>;
 }): Promise<void> {
   let lastAssistantMessage: string | undefined;
+  let jsonFormatter: ExecJsonEventFormatter | undefined;
   const agent = new AgentLoop({
     model: config.model,
     config: config,
@@ -1049,12 +1051,19 @@ async function runQuietMode({
         lastAssistantMessage = assistantText;
       }
       // eslint-disable-next-line no-console
-      console.log(
-        formatResponseItemForQuietMode(item, {
-          format,
-          prettyPrint: PRETTY_PRINT,
-        }),
-      );
+      if (format === "json") {
+        jsonFormatter ??= new ExecJsonEventFormatter(agent.sessionId);
+        for (const event of jsonFormatter.eventsForItem(item)) {
+          console.log(JSON.stringify(event));
+        }
+      } else {
+        console.log(
+          formatResponseItemForQuietMode(item, {
+            format,
+            prettyPrint: PRETTY_PRINT,
+          }),
+        );
+      }
     },
     onLoading: () => {
       /* intentionally ignored in quiet mode */
@@ -1074,8 +1083,20 @@ async function runQuietMode({
     },
   });
 
+  if (format === "json") {
+    jsonFormatter = new ExecJsonEventFormatter(agent.sessionId);
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(jsonFormatter.threadStarted()));
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(jsonFormatter.turnStarted()));
+  }
+
   const inputItem = await createInputItem(prompt, imagePaths);
   await agent.run([inputItem]);
+  if (format === "json" && jsonFormatter) {
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(jsonFormatter.turnCompleted()));
+  }
   outputSchemaValidator?.validateJsonText(lastAssistantMessage);
   if (outputLastMessagePath && lastAssistantMessage) {
     writeLastAssistantMessage(outputLastMessagePath, lastAssistantMessage);

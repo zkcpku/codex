@@ -223,7 +223,7 @@ The hardening mechanism Codex uses depends on your OS:
 | `codex`                              | Interactive REPL                    | `codex`                              |
 | `codex "..."`                        | Initial prompt for interactive REPL | `codex "fix lint errors"`            |
 | `codex -q "..."`                     | Non-interactive readable output     | `codex -q "explain utils.ts"`        |
-| `codex -j "..."`                     | Non-interactive JSONL output        | `codex -j -o final.txt "fix tests"`  |
+| `codex -j "..."`                     | Non-interactive event JSONL output  | `codex -j -o final.txt "fix tests"`  |
 | `codex login status`                 | Show current login status           | `codex login status`                 |
 | `codex logout`                       | Remove stored Codex CLI login       | `codex logout`                       |
 | `codex exec "..."`                   | Run Codex non-interactively         | `codex exec -j "fix failing tests"`  |
