@@ -43,8 +43,10 @@ export type ThreadEvent =
   | { type: "thread.started"; thread_id: string }
   | { type: "turn.started" }
   | { type: "turn.completed"; usage: ThreadUsage }
+  | { type: "turn.failed"; error: { message: string } }
   | { type: "item.started"; item: ThreadItem }
-  | { type: "item.completed"; item: ThreadItem };
+  | { type: "item.completed"; item: ThreadItem }
+  | { type: "error"; message: string };
 
 export class ExecJsonEventFormatter {
   private readonly runningCommands = new Map<string, string>();
@@ -70,6 +72,20 @@ export class ExecJsonEventFormatter {
         cached_input_tokens: 0,
         output_tokens: 0,
       },
+    };
+  }
+
+  turnFailed(message: string): ThreadEvent {
+    return {
+      type: "turn.failed",
+      error: { message },
+    };
+  }
+
+  streamError(message: string): ThreadEvent {
+    return {
+      type: "error",
+      message,
     };
   }
 

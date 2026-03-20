@@ -1092,10 +1092,22 @@ async function runQuietMode({
   }
 
   const inputItem = await createInputItem(prompt, imagePaths);
-  await agent.run([inputItem]);
-  if (format === "json" && jsonFormatter) {
-    // eslint-disable-next-line no-console
-    console.log(JSON.stringify(jsonFormatter.turnCompleted()));
+  try {
+    await agent.run([inputItem]);
+    if (format === "json" && jsonFormatter) {
+      // eslint-disable-next-line no-console
+      console.log(JSON.stringify(jsonFormatter.turnCompleted()));
+    }
+  } catch (error) {
+    if (format === "json" && jsonFormatter) {
+      const message =
+        error instanceof Error ? error.message : "Unknown exec failure";
+      // eslint-disable-next-line no-console
+      console.log(JSON.stringify(jsonFormatter.streamError(message)));
+      // eslint-disable-next-line no-console
+      console.log(JSON.stringify(jsonFormatter.turnFailed(message)));
+    }
+    throw error;
   }
   outputSchemaValidator?.validateJsonText(lastAssistantMessage);
   if (outputLastMessagePath && lastAssistantMessage) {

@@ -19,6 +19,14 @@ describe("ExecJsonEventFormatter", () => {
         output_tokens: 0,
       },
     });
+    expect(formatter.streamError("boom")).toEqual({
+      type: "error",
+      message: "boom",
+    });
+    expect(formatter.turnFailed("boom")).toEqual({
+      type: "turn.failed",
+      error: { message: "boom" },
+    });
   });
 
   it("converts assistant messages into agent_message items", () => {
@@ -40,6 +48,26 @@ describe("ExecJsonEventFormatter", () => {
           id: "msg_1",
           type: "agent_message",
           text: "hello from codex",
+        },
+      },
+    ]);
+  });
+
+  it("converts reasoning items into reasoning events", () => {
+    const formatter = new ExecJsonEventFormatter("thread-123");
+    const events = formatter.eventsForItem({
+      id: "reasoning_1",
+      type: "reasoning",
+      summary: [{ text: "Thinking about the right patch." }],
+    } as unknown as ResponseItem);
+
+    expect(events).toEqual([
+      {
+        type: "item.completed",
+        item: {
+          id: "reasoning_1",
+          type: "reasoning",
+          text: "Thinking about the right patch.",
         },
       },
     ]);
