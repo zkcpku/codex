@@ -233,7 +233,7 @@ The hardening mechanism Codex uses depends on your OS:
 | `codex review --uncommitted`         | Review current working tree changes | `codex review --base main`           |
 | `codex completion <bash\|zsh\|fish>` | Print shell completion script       | `codex completion bash`              |
 
-Key flags: `--model/-m`, `--approval-mode/-a`, `--quiet/-q`, `--json/-j`, `--output-last-message/-o`, `--skip-git-repo-check`, `--ephemeral`, and `--notify`.
+Key flags: `--model/-m`, `--approval-mode/-a`, `--quiet/-q`, `--json/-j`, `--output-last-message/-o`, `--output-schema`, `--skip-git-repo-check`, `--ephemeral`, and `--notify`.
 
 ---
 

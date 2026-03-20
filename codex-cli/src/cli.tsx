@@ -31,6 +31,7 @@ import { applyPatchesFromRollout } from "./apply-command.js";
 import { runSinglePass } from "./cli-singlepass";
 import SessionsOverlay from "./components/sessions-overlay.js";
 import { buildExecResumePrompt, parseExecPrompt } from "./exec-command.js";
+import { loadOutputSchemaValidator } from "./output-schema.js";
 import {
   formatResponseItemForQuietMode,
   getAssistantTextFromResponseItem,
@@ -102,6 +103,7 @@ const cli = meow(
     --all                           Show all sessions when applicable
     --skip-git-repo-check           Allow running outside a git repository
     --ephemeral                     Run without persisting session rollouts to disk
+    --output-schema <file>          Validate the final assistant JSON against a schema
     --uncommitted                   Review staged, unstaged, and untracked changes
     --base <branch>                 Review changes against the given base branch
     --commit <sha>                  Review the changes introduced by a commit
@@ -170,6 +172,10 @@ const cli = meow(
       ephemeral: {
         type: "boolean",
         description: "Run without persisting session rollouts to disk",
+      },
+      outputSchema: {
+        type: "string",
+        description: "Validate the final assistant JSON against a schema file",
       },
       uncommitted: {
         type: "boolean",
@@ -384,6 +390,7 @@ if (prompt === "") {
 const model = cli.flags.model ?? config.model;
 const imagePaths = cli.flags.image;
 const provider = cli.flags.provider ?? config.provider ?? "openai";
+const outputSchemaValidator = loadOutputSchemaValidator(cli.flags.outputSchema);
 
 const client = {
   issuer: "https://auth.openai.com",
@@ -926,6 +933,7 @@ if (reviewMode) {
     config,
     format: cli.flags.json ? "json" : "human",
     outputLastMessagePath: cli.flags.outputLastMessage,
+    outputSchemaValidator,
   });
   onExit();
   process.exit(0);
@@ -963,6 +971,7 @@ if (cli.flags.quiet || cli.flags.json || execMode) {
     config,
     format: cli.flags.json ? "json" : "human",
     outputLastMessagePath: cli.flags.outputLastMessage,
+    outputSchemaValidator,
   });
   onExit();
   process.exit(0);
@@ -1014,6 +1023,7 @@ async function runQuietMode({
   config,
   format,
   outputLastMessagePath,
+  outputSchemaValidator,
 }: {
   prompt: string;
   imagePaths: Array<string>;
@@ -1022,6 +1032,7 @@ async function runQuietMode({
   config: AppConfig;
   format: "human" | "json";
   outputLastMessagePath?: string;
+  outputSchemaValidator?: ReturnType<typeof loadOutputSchemaValidator>;
 }): Promise<void> {
   let lastAssistantMessage: string | undefined;
   const agent = new AgentLoop({
@@ -1065,6 +1076,7 @@ async function runQuietMode({
 
   const inputItem = await createInputItem(prompt, imagePaths);
   await agent.run([inputItem]);
+  outputSchemaValidator?.validateJsonText(lastAssistantMessage);
   if (outputLastMessagePath && lastAssistantMessage) {
     writeLastAssistantMessage(outputLastMessagePath, lastAssistantMessage);
   }
