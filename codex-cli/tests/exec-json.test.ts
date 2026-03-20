@@ -90,4 +90,44 @@ describe("ExecJsonEventFormatter", () => {
       },
     ]);
   });
+
+  it("converts apply_patch calls into file_change items", () => {
+    const formatter = new ExecJsonEventFormatter("thread-123");
+    const events = formatter.eventsForItem({
+      id: "patch_1",
+      type: "function_call",
+      call_id: "call_patch_1",
+      name: "apply_patch",
+      arguments: JSON.stringify({
+        patch: [
+          "*** Begin Patch",
+          "*** Add File: foo.txt",
+          "+hello",
+          "*** Update File: bar.txt",
+          "@@",
+          "-old",
+          "+new",
+          "*** Delete File: baz.txt",
+          "*** End Patch",
+        ].join("\n"),
+      }),
+      status: "completed",
+    });
+
+    expect(events).toEqual([
+      {
+        type: "item.completed",
+        item: {
+          id: "patch_1",
+          type: "file_change",
+          changes: [
+            { path: "foo.txt", kind: "add" },
+            { path: "bar.txt", kind: "update" },
+            { path: "baz.txt", kind: "delete" },
+          ],
+          status: "completed",
+        },
+      },
+    ]);
+  });
 });

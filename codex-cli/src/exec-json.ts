@@ -1,6 +1,7 @@
 import type { ResponseItem } from "openai/resources/responses/responses";
 
 import { getAssistantTextFromResponseItem } from "./quiet-mode.js";
+import { parseApplyPatch } from "./parse-apply-patch.js";
 import { parseToolCall } from "./utils/parsers.js";
 
 type ThreadUsage = {
@@ -27,6 +28,15 @@ type ThreadItem =
       aggregated_output: string;
       exit_code: number | null;
       status: "in_progress" | "completed" | "failed";
+    }
+  | {
+      id: string;
+      type: "file_change";
+      changes: Array<{
+        path: string;
+        kind: "add" | "delete" | "update";
+      }>;
+      status: "completed" | "failed";
     };
 
 export type ThreadEvent =
@@ -104,6 +114,23 @@ export class ExecJsonEventFormatter {
     }
 
     if (item.type === "function_call") {
+      if (item.name === "apply_patch") {
+        const changes = getFileChangesFromApplyPatch(item.arguments);
+        if (changes.length > 0) {
+          return [
+            {
+              type: "item.completed",
+              item: {
+                id: item.id,
+                type: "file_change",
+                changes,
+                status: "completed",
+              },
+            },
+          ];
+        }
+      }
+
       const details = parseToolCall(item);
       const command = details?.cmdReadableText ?? item.name;
       this.runningCommands.set(item.call_id, command);
@@ -143,6 +170,27 @@ export class ExecJsonEventFormatter {
       ];
     }
 
+    return [];
+  }
+}
+
+function getFileChangesFromApplyPatch(
+  argumentsJson: string,
+): Array<{ path: string; kind: "add" | "delete" | "update" }> {
+  try {
+    const args = JSON.parse(argumentsJson) as { patch?: string };
+    if (typeof args.patch !== "string") {
+      return [];
+    }
+    const ops = parseApplyPatch(args.patch);
+    if (!ops) {
+      return [];
+    }
+    return ops.map((op) => ({
+      path: op.path,
+      kind: op.type === "create" ? "add" : op.type,
+    }));
+  } catch {
     return [];
   }
 }
