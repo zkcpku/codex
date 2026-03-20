@@ -5,12 +5,13 @@ import TypeaheadOverlay from "./typeahead-overlay.js";
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
 
-export type SessionSelectMode = "view" | "resume" | "fork";
+export type SessionSelectMode = "view" | "resume" | "fork" | "apply";
 
 type Props = {
   onView: (sessionPath: string) => void;
   onResume: (sessionPath: string) => void;
   onFork?: (sessionPath: string) => void;
+  onApply?: (sessionPath: string) => void;
   onExit: () => void;
   modes?: Array<SessionSelectMode>;
   initialMode?: SessionSelectMode;
@@ -20,6 +21,7 @@ export default function SessionsOverlay({
   onView,
   onResume,
   onFork,
+  onApply,
   onExit,
   modes = ["view", "resume"],
   initialMode = "view",
@@ -59,12 +61,14 @@ export default function SessionsOverlay({
     view: "View session",
     resume: "Resume session",
     fork: "Fork session",
+    apply: "Apply session patch",
   };
 
   const actionByMode: Record<SessionSelectMode, string> = {
     view: "view",
     resume: "resume",
     fork: "fork",
+    apply: "apply",
   };
 
   return (
@@ -87,6 +91,8 @@ export default function SessionsOverlay({
           onView(value);
         } else if (mode === "resume") {
           onResume(value);
+        } else if (mode === "apply") {
+          onApply?.(value);
         } else {
           onFork?.(value);
         }

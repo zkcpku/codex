@@ -4,7 +4,7 @@ import type { ResponseItem } from "openai/resources/responses/responses.mjs";
  * Extracts the patch texts of all `apply_patch` tool calls from the given
  * message history. Returns an empty string when none are found.
  */
-export function extractAppliedPatches(items: Array<ResponseItem>): string {
+export function extractAppliedPatchTexts(items: Array<ResponseItem>): Array<string> {
   const patches: Array<string> = [];
 
   for (const item of items) {
@@ -32,5 +32,9 @@ export function extractAppliedPatches(items: Array<ResponseItem>): string {
     }
   }
 
-  return patches.join("\n\n");
+  return patches;
+}
+
+export function extractAppliedPatches(items: Array<ResponseItem>): string {
+  return extractAppliedPatchTexts(items).join("\n\n");
 }

@@ -27,6 +27,7 @@ import type { ReasoningEffort } from "openai/resources.mjs";
 
 import App from "./app";
 import { getAuthStatus, readStoredAuth, removeStoredAuth } from "./auth.js";
+import { applyPatchesFromRollout } from "./apply-command.js";
 import { runSinglePass } from "./cli-singlepass";
 import SessionsOverlay from "./components/sessions-overlay.js";
 import {
@@ -79,6 +80,7 @@ const cli = meow(
     $ codex login
     $ codex login status
     $ codex logout
+    $ codex apply [session]
     $ codex resume [session] [prompt]
     $ codex fork [session] [prompt]
     $ codex review [--uncommitted|--base <branch>|--commit <sha>] [prompt]
@@ -348,13 +350,14 @@ const subcommand = cli.input[0];
 const loginMode = subcommand === "login";
 const loginStatusMode = loginMode && cli.input[1] === "status";
 const logoutMode = subcommand === "logout";
+const applyMode = subcommand === "apply";
 const reviewMode = subcommand === "review";
 const resumeMode = subcommand === "resume";
 const forkMode = subcommand === "fork";
 let prompt = reviewMode || resumeMode || forkMode
   ? cli.input.slice(1).join(" ").trim()
   : cli.input[0];
-if (loginMode || logoutMode) {
+if (loginMode || logoutMode || applyMode) {
   prompt = undefined;
 }
 if (prompt === "") {
@@ -389,6 +392,68 @@ if (storedAuth?.tokens) {
 const authStatus = getAuthStatus();
 if (storedAuth?.OPENAI_API_KEY && !authStatus.expired) {
   apiKey = storedAuth.OPENAI_API_KEY;
+}
+
+if (applyMode) {
+  const explicitSession = cli.input[1] && !cli.input[1].startsWith("-")
+    ? cli.input[1]
+    : undefined;
+
+  let sessionPath: string | undefined;
+  if (explicitSession || cli.flags.last) {
+    sessionPath = await resolveSessionPath({
+      sessionIdOrPath: explicitSession,
+      last: Boolean(cli.flags.last),
+    });
+    if (!sessionPath) {
+      // eslint-disable-next-line no-console
+      console.error("Unable to resolve the requested session to apply.");
+      process.exit(1);
+    }
+  } else {
+    const result: { path: string; mode: "apply" } | null = await new Promise(
+      (resolve) => {
+        const instance = render(
+          React.createElement(SessionsOverlay, {
+            onView: () => {},
+            onResume: () => {},
+            onFork: () => {},
+            onApply: (p: string) => {
+              instance.unmount();
+              resolve({ path: p, mode: "apply" });
+            },
+            modes: ["apply"],
+            initialMode: "apply",
+            onExit: () => {
+              instance.unmount();
+              resolve(null);
+            },
+          }),
+        );
+      },
+    );
+
+    if (!result) {
+      process.exit(0);
+    }
+    sessionPath = result.path;
+  }
+
+  try {
+    const rollout = readRolloutFromFile(sessionPath);
+    const result = applyPatchesFromRollout(rollout, process.cwd());
+    // eslint-disable-next-line no-console
+    console.log(
+      `Applied ${result.applied} patch${result.applied === 1 ? "" : "es"} from ${sessionPath}.`,
+    );
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(
+      error instanceof Error ? error.message : "Failed to apply session patch.",
+    );
+    process.exit(1);
+  }
+  process.exit(0);
 }
 
 if (logoutMode) {
