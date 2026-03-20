@@ -1,71 +1,9 @@
 import type { TypeaheadItem } from "./typeahead-overlay.js";
 
+import { loadSessions } from "../session-rollouts.js";
 import TypeaheadOverlay from "./typeahead-overlay.js";
-import fs from "fs/promises";
 import { Box, Text, useInput } from "ink";
-import os from "os";
-import path from "path";
 import React, { useEffect, useState } from "react";
-
-const SESSIONS_ROOT = path.join(os.homedir(), ".codex", "sessions");
-
-export type SessionMeta = {
-  path: string;
-  timestamp: string;
-  userMessages: number;
-  toolCalls: number;
-  firstMessage: string;
-};
-
-async function loadSessions(): Promise<Array<SessionMeta>> {
-  try {
-    const entries = await fs.readdir(SESSIONS_ROOT);
-    const sessions: Array<SessionMeta> = [];
-    for (const entry of entries) {
-      if (!entry.endsWith(".json")) {
-        continue;
-      }
-      const filePath = path.join(SESSIONS_ROOT, entry);
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const content = await fs.readFile(filePath, "utf-8");
-        const data = JSON.parse(content) as {
-          session?: { timestamp?: string };
-          items?: Array<{
-            type: string;
-            role: string;
-            content: Array<{ text: string }>;
-          }>;
-        };
-        const items = Array.isArray(data.items) ? data.items : [];
-        const firstUser = items.find(
-          (i) => i?.type === "message" && i.role === "user",
-        );
-        const firstText =
-          firstUser?.content?.[0]?.text?.replace(/\n/g, " ").slice(0, 16) ?? "";
-        const userMessages = items.filter(
-          (i) => i?.type === "message" && i.role === "user",
-        ).length;
-        const toolCalls = items.filter(
-          (i) => i?.type === "function_call",
-        ).length;
-        sessions.push({
-          path: filePath,
-          timestamp: data.session?.timestamp || "",
-          userMessages,
-          toolCalls,
-          firstMessage: firstText,
-        });
-      } catch {
-        /* ignore invalid session */
-      }
-    }
-    sessions.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-    return sessions;
-  } catch {
-    return [];
-  }
-}
 
 type Props = {
   onView: (sessionPath: string) => void;

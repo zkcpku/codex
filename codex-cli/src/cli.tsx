@@ -34,6 +34,12 @@ import {
   writeLastAssistantMessage,
 } from "./quiet-mode.js";
 import { buildReviewPlan } from "./review-command.js";
+import {
+  buildResumePrompt,
+  parseResumePositionalArgs,
+  readRolloutFromFile,
+  resolveSessionPath,
+} from "./session-rollouts.js";
 import { AgentLoop } from "./utils/agent/agent-loop";
 import { ReviewDecision } from "./utils/agent/review";
 import { AutoApprovalMode } from "./utils/auto-approval-mode";
@@ -69,6 +75,7 @@ const cli = meow(
   `
   Usage
     $ codex [options] <prompt>
+    $ codex resume [session] [prompt]
     $ codex review [--uncommitted|--base <branch>|--commit <sha>] [prompt]
     $ codex completion <bash|zsh|fish>
 
@@ -81,6 +88,8 @@ const cli = meow(
     -i, --image <path>              Path(s) to image files to include as input
     -v, --view <rollout>            Inspect a previously saved rollout instead of starting a session
     --history                       Browse previous sessions
+    --last                          Resume the most recent recorded session
+    --all                           Show all sessions when applicable
     --uncommitted                   Review staged, unstaged, and untracked changes
     --base <branch>                 Review changes against the given base branch
     --commit <sha>                  Review the changes introduced by a commit
@@ -134,6 +143,14 @@ const cli = meow(
       version: { type: "boolean", description: "Print version and exit" },
       view: { type: "string" },
       history: { type: "boolean", description: "Browse previous sessions" },
+      last: {
+        type: "boolean",
+        description: "Resume the most recent recorded session",
+      },
+      all: {
+        type: "boolean",
+        description: "Show all sessions when applicable",
+      },
       uncommitted: {
         type: "boolean",
         description: "Review staged, unstaged, and untracked changes",
@@ -322,8 +339,10 @@ let config = loadConfig(undefined, undefined, {
 // `prompt` can be updated later when the user resumes a previous session
 // via the `--history` flag. Therefore it must be declared with `let` rather
 // than `const`.
-const reviewMode = cli.input[0] === "review";
-let prompt = reviewMode ? cli.input.slice(1).join(" ").trim() : cli.input[0];
+const subcommand = cli.input[0];
+const reviewMode = subcommand === "review";
+const resumeMode = subcommand === "resume";
+let prompt = reviewMode || resumeMode ? cli.input.slice(1).join(" ").trim() : cli.input[0];
 if (prompt === "") {
   prompt = undefined;
 }
@@ -539,31 +558,85 @@ if (cli.flags.history) {
 
   if (result.mode === "view") {
     try {
-      const content = fs.readFileSync(result.path, "utf-8");
-      rollout = JSON.parse(content) as AppRollout;
+      rollout = readRolloutFromFile(result.path);
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error("Error reading session file:", error);
       process.exit(1);
     }
   } else {
-    prompt = `Resume this session: ${result.path}`;
+    prompt = buildResumePrompt(result.path);
   }
 }
 
 // For --view, optionally load an existing rollout from disk, display it and exit.
 if (cli.flags.view) {
   const viewPath = cli.flags.view;
-  const absolutePath = path.isAbsolute(viewPath)
-    ? viewPath
-    : path.join(process.cwd(), viewPath);
   try {
-    const content = fs.readFileSync(absolutePath, "utf-8");
-    rollout = JSON.parse(content) as AppRollout;
+    rollout = readRolloutFromFile(viewPath);
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("Error reading rollout file:", error);
     process.exit(1);
+  }
+}
+
+if (resumeMode) {
+  const resumeArgs = parseResumePositionalArgs({
+    positional: cli.input.slice(1),
+    last: Boolean(cli.flags.last),
+  });
+  let resumePrompt = resumeArgs.prompt ?? "";
+  if (resumePrompt === "-") {
+    resumePrompt = fs.readFileSync(0, "utf8").trim();
+  }
+
+  const explicitSession = resumeArgs.sessionIdOrPath;
+
+  let sessionPath: string | undefined;
+  if (explicitSession || cli.flags.last) {
+    sessionPath = await resolveSessionPath({
+      sessionIdOrPath: explicitSession,
+      last: Boolean(cli.flags.last),
+    });
+    if (!sessionPath) {
+      // eslint-disable-next-line no-console
+      console.error("Unable to resolve the requested session to resume.");
+      process.exit(1);
+    }
+  } else {
+    const result: { path: string; mode: "view" | "resume" } | null =
+      await new Promise((resolve) => {
+        const instance = render(
+          React.createElement(SessionsOverlay, {
+            onView: (p: string) => {
+              instance.unmount();
+              resolve({ path: p, mode: "view" });
+            },
+            onResume: (p: string) => {
+              instance.unmount();
+              resolve({ path: p, mode: "resume" });
+            },
+            onExit: () => {
+              instance.unmount();
+              resolve(null);
+            },
+          }),
+        );
+      });
+
+    if (!result) {
+      process.exit(0);
+    }
+    if (result.mode === "view") {
+      rollout = readRolloutFromFile(result.path);
+    } else {
+      sessionPath = result.path;
+    }
+  }
+
+  if (sessionPath) {
+    prompt = buildResumePrompt(sessionPath, resumePrompt);
   }
 }
 
