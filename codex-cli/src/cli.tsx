@@ -33,6 +33,7 @@ import {
   getAssistantTextFromResponseItem,
   writeLastAssistantMessage,
 } from "./quiet-mode.js";
+import { buildReviewPlan } from "./review-command.js";
 import { AgentLoop } from "./utils/agent/agent-loop";
 import { ReviewDecision } from "./utils/agent/review";
 import { AutoApprovalMode } from "./utils/auto-approval-mode";
@@ -68,6 +69,7 @@ const cli = meow(
   `
   Usage
     $ codex [options] <prompt>
+    $ codex review [--uncommitted|--base <branch>|--commit <sha>] [prompt]
     $ codex completion <bash|zsh|fish>
 
   Options
@@ -79,6 +81,10 @@ const cli = meow(
     -i, --image <path>              Path(s) to image files to include as input
     -v, --view <rollout>            Inspect a previously saved rollout instead of starting a session
     --history                       Browse previous sessions
+    --uncommitted                   Review staged, unstaged, and untracked changes
+    --base <branch>                 Review changes against the given base branch
+    --commit <sha>                  Review the changes introduced by a commit
+    --title <title>                 Optional commit title for --commit reviews
     --login                         Start a new sign in flow
     --free                          Retry redeeming free credits
     -q, --quiet                     Non-interactive mode with readable output
@@ -128,6 +134,22 @@ const cli = meow(
       version: { type: "boolean", description: "Print version and exit" },
       view: { type: "string" },
       history: { type: "boolean", description: "Browse previous sessions" },
+      uncommitted: {
+        type: "boolean",
+        description: "Review staged, unstaged, and untracked changes",
+      },
+      base: {
+        type: "string",
+        description: "Review changes against the given base branch",
+      },
+      commit: {
+        type: "string",
+        description: "Review the changes introduced by a commit",
+      },
+      title: {
+        type: "string",
+        description: "Optional commit title for --commit review",
+      },
       login: { type: "boolean", description: "Force a new sign in flow" },
       free: { type: "boolean", description: "Retry redeeming free credits" },
       model: { type: "string", aliases: ["m"] },
@@ -300,7 +322,11 @@ let config = loadConfig(undefined, undefined, {
 // `prompt` can be updated later when the user resumes a previous session
 // via the `--history` flag. Therefore it must be declared with `let` rather
 // than `const`.
-let prompt = cli.input[0];
+const reviewMode = cli.input[0] === "review";
+let prompt = reviewMode ? cli.input.slice(1).join(" ").trim() : cli.input[0];
+if (prompt === "") {
+  prompt = undefined;
+}
 const model = cli.flags.model ?? config.model;
 const imagePaths = cli.flags.image;
 const provider = cli.flags.provider ?? config.provider ?? "openai";
@@ -547,6 +573,49 @@ if (fullContextMode) {
     originalPrompt: prompt,
     config,
     rootPath: process.cwd(),
+  });
+  onExit();
+  process.exit(0);
+}
+
+if (reviewMode) {
+  let reviewPrompt = prompt;
+  if (reviewPrompt === "-") {
+    reviewPrompt = fs.readFileSync(0, "utf8").trim();
+  }
+
+  let plan;
+  try {
+    plan = buildReviewPlan({
+      uncommitted: cli.flags.uncommitted,
+      base: cli.flags.base,
+      commit: cli.flags.commit,
+      title: cli.flags.title,
+      prompt: reviewPrompt,
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(
+      error instanceof Error ? error.message : "Failed to prepare review command.",
+    );
+    process.exit(1);
+  }
+
+  const reviewApprovalPolicy: ApprovalPolicy =
+    cli.flags.fullAuto || cli.flags.approvalMode === "full-auto"
+      ? AutoApprovalMode.FULL_AUTO
+      : cli.flags.autoEdit || cli.flags.approvalMode === "auto-edit"
+        ? AutoApprovalMode.AUTO_EDIT
+        : config.approvalMode || AutoApprovalMode.SUGGEST;
+
+  await runQuietMode({
+    prompt: plan.prompt,
+    imagePaths: [],
+    approvalPolicy: reviewApprovalPolicy,
+    additionalWritableRoots: [],
+    config,
+    format: cli.flags.json ? "json" : "human",
+    outputLastMessagePath: cli.flags.outputLastMessage,
   });
   onExit();
   process.exit(0);
