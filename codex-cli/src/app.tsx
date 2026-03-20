@@ -5,6 +5,7 @@ import type { ResponseItem } from "openai/resources/responses/responses";
 
 import TerminalChat from "./components/chat/terminal-chat";
 import TerminalChatPastRollout from "./components/chat/terminal-chat-past-rollout";
+import { shouldConfirmOutsideGitRepo } from "./runtime-flags.js";
 import { checkInGit } from "./utils/check-in-git";
 import { onExit } from "./utils/terminal";
 import { CLI_VERSION } from "./version";
@@ -25,6 +26,8 @@ type Props = {
   approvalPolicy: ApprovalPolicy;
   additionalWritableRoots: ReadonlyArray<string>;
   fullStdout: boolean;
+  skipGitRepoCheck: boolean;
+  ephemeral: boolean;
 };
 
 export default function App({
@@ -35,6 +38,8 @@ export default function App({
   approvalPolicy,
   additionalWritableRoots,
   fullStdout,
+  skipGitRepoCheck,
+  ephemeral,
 }: Props): JSX.Element {
   const app = useApp();
   const [accepted, setAccepted] = useState(() => false);
@@ -55,7 +60,13 @@ export default function App({
     );
   }
 
-  if (!inGitRepo && !accepted) {
+  if (
+    shouldConfirmOutsideGitRepo({
+      inGitRepo,
+      accepted,
+      skipGitRepoCheck,
+    })
+  ) {
     return (
       <Box flexDirection="column">
         <Box borderStyle="round" paddingX={1} width={64}>
@@ -103,6 +114,7 @@ export default function App({
       approvalPolicy={approvalPolicy}
       additionalWritableRoots={additionalWritableRoots}
       fullStdout={fullStdout}
+      ephemeral={ephemeral}
     />
   );
 }

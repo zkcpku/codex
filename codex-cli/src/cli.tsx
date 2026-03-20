@@ -100,6 +100,8 @@ const cli = meow(
     --history                       Browse previous sessions
     --last                          Resume the most recent recorded session
     --all                           Show all sessions when applicable
+    --skip-git-repo-check           Allow running outside a git repository
+    --ephemeral                     Run without persisting session rollouts to disk
     --uncommitted                   Review staged, unstaged, and untracked changes
     --base <branch>                 Review changes against the given base branch
     --commit <sha>                  Review the changes introduced by a commit
@@ -160,6 +162,14 @@ const cli = meow(
       all: {
         type: "boolean",
         description: "Show all sessions when applicable",
+      },
+      skipGitRepoCheck: {
+        type: "boolean",
+        description: "Allow running outside a git repository",
+      },
+      ephemeral: {
+        type: "boolean",
+        description: "Run without persisting session rollouts to disk",
       },
       uncommitted: {
         type: "boolean",
@@ -987,6 +997,8 @@ const instance = render(
     approvalPolicy={approvalPolicy}
     additionalWritableRoots={additionalWritableRoots}
     fullStdout={Boolean(cli.flags.fullStdout)}
+    skipGitRepoCheck={Boolean(cli.flags.skipGitRepoCheck)}
+    ephemeral={Boolean(cli.flags.ephemeral)}
   />,
   {
     patchConsole: process.env["DEBUG"] ? false : true,

@@ -30,6 +30,7 @@ import {
   buildResumePrompt,
   readRolloutFromFile,
 } from "../../session-rollouts.js";
+import { shouldPersistRollout } from "../../runtime-flags.js";
 import { createOpenAIClient } from "../../utils/openai-client.js";
 import { shortCwd } from "../../utils/short-path.js";
 import { saveRollout } from "../../utils/storage/save-rollout.js";
@@ -62,6 +63,7 @@ type Props = {
   approvalPolicy: ApprovalPolicy;
   additionalWritableRoots: ReadonlyArray<string>;
   fullStdout: boolean;
+  ephemeral: boolean;
 };
 
 const colorsByPolicy: Record<ApprovalPolicy, ColorName | undefined> = {
@@ -147,6 +149,7 @@ export default function TerminalChat({
   approvalPolicy: initialApprovalPolicy,
   additionalWritableRoots,
   fullStdout,
+  ephemeral,
 }: Props): React.ReactElement {
   const notify = Boolean(config.notify);
   const [model, setModel] = useState<string>(config.model);
@@ -260,7 +263,9 @@ export default function TerminalChat({
         log(`onItem: ${JSON.stringify(item)}`);
         setItems((prev) => {
           const updated = uniqueById([...prev, item as ResponseItem]);
-          saveRollout(sessionId, updated);
+          if (shouldPersistRollout(ephemeral)) {
+            saveRollout(sessionId, updated);
+          }
           return updated;
         });
       },
