@@ -225,6 +225,7 @@ The hardening mechanism Codex uses depends on your OS:
 | `codex -q "..."`                     | Non-interactive readable output     | `codex -q "explain utils.ts"`        |
 | `codex -j "..."`                     | Non-interactive JSONL output        | `codex -j -o final.txt "fix tests"`  |
 | `codex resume --last`                | Resume the latest saved session     | `codex resume session-id "continue"` |
+| `codex fork --last`                  | Fork the latest saved session       | `codex fork session-id "try another approach"` |
 | `codex review --uncommitted`         | Review current working tree changes | `codex review --base main`           |
 | `codex completion <bash\|zsh\|fish>` | Print shell completion script       | `codex completion bash`              |
 

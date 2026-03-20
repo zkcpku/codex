@@ -25,6 +25,11 @@ import {
   calculateContextPercentRemaining,
   uniqueById,
 } from "../../utils/model-utils.js";
+import {
+  buildForkPrompt,
+  buildResumePrompt,
+  readRolloutFromFile,
+} from "../../session-rollouts.js";
 import { createOpenAIClient } from "../../utils/openai-client.js";
 import { shortCwd } from "../../utils/short-path.js";
 import { saveRollout } from "../../utils/storage/save-rollout.js";
@@ -36,7 +41,6 @@ import HistoryOverlay from "../history-overlay.js";
 import ModelOverlay from "../model-overlay.js";
 import SessionsOverlay from "../sessions-overlay.js";
 import chalk from "chalk";
-import fs from "fs/promises";
 import { Box, Text } from "ink";
 import { spawn } from "node:child_process";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -589,8 +593,7 @@ export default function TerminalChat({
           <SessionsOverlay
             onView={async (p) => {
               try {
-                const txt = await fs.readFile(p, "utf-8");
-                const data = JSON.parse(txt) as AppRollout;
+                const data = readRolloutFromFile(p);
                 setViewRollout(data);
                 setOverlayMode("none");
               } catch {
@@ -599,8 +602,13 @@ export default function TerminalChat({
             }}
             onResume={(p) => {
               setOverlayMode("none");
-              setInitialPrompt(`Resume this session: ${p}`);
+              setInitialPrompt(buildResumePrompt(p));
             }}
+            onFork={(p) => {
+              setOverlayMode("none");
+              setInitialPrompt(buildForkPrompt(p));
+            }}
+            modes={["view", "resume", "fork"]}
             onExit={() => setOverlayMode("none")}
           />
         )}

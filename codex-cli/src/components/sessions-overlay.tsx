@@ -5,19 +5,27 @@ import TypeaheadOverlay from "./typeahead-overlay.js";
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
 
+export type SessionSelectMode = "view" | "resume" | "fork";
+
 type Props = {
   onView: (sessionPath: string) => void;
   onResume: (sessionPath: string) => void;
+  onFork?: (sessionPath: string) => void;
   onExit: () => void;
+  modes?: Array<SessionSelectMode>;
+  initialMode?: SessionSelectMode;
 };
 
 export default function SessionsOverlay({
   onView,
   onResume,
+  onFork,
   onExit,
+  modes = ["view", "resume"],
+  initialMode = "view",
 }: Props): JSX.Element {
   const [items, setItems] = useState<Array<TypeaheadItem>>([]);
-  const [mode, setMode] = useState<"view" | "resume">("view");
+  const [mode, setMode] = useState<SessionSelectMode>(initialMode);
 
   useEffect(() => {
     (async () => {
@@ -39,27 +47,48 @@ export default function SessionsOverlay({
 
   useInput((_input, key) => {
     if (key.tab) {
-      setMode((m) => (m === "view" ? "resume" : "view"));
+      setMode((m) => {
+        const currentIndex = modes.indexOf(m);
+        const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % modes.length;
+        return modes[nextIndex] ?? modes[0] ?? "view";
+      });
     }
   });
 
+  const titleByMode: Record<SessionSelectMode, string> = {
+    view: "View session",
+    resume: "Resume session",
+    fork: "Fork session",
+  };
+
+  const actionByMode: Record<SessionSelectMode, string> = {
+    view: "view",
+    resume: "resume",
+    fork: "fork",
+  };
+
   return (
     <TypeaheadOverlay
-      title={mode === "view" ? "View session" : "Resume session"}
+      title={titleByMode[mode]}
       description={
         <Box flexDirection="column">
           <Text>
-            {mode === "view" ? "press enter to view" : "press enter to resume"}
+            {`press enter to ${actionByMode[mode]}`}
           </Text>
-          <Text dimColor>tab to toggle mode · esc to cancel</Text>
+          <Text dimColor>
+            {modes.length > 1 ? "tab to toggle mode · " : ""}
+            esc to cancel
+          </Text>
         </Box>
       }
       initialItems={items}
       onSelect={(value) => {
         if (mode === "view") {
           onView(value);
-        } else {
+        } else if (mode === "resume") {
           onResume(value);
+        } else {
+          onFork?.(value);
         }
       }}
       onExit={onExit}

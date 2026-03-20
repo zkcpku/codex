@@ -1,4 +1,5 @@
 import {
+  buildForkPrompt,
   buildResumePrompt,
   parseResumePositionalArgs,
 } from "../src/session-rollouts.js";
@@ -39,6 +40,20 @@ describe("buildResumePrompt", () => {
   it("includes follow-up instructions when provided", () => {
     expect(buildResumePrompt("/tmp/rollout.json", "fix the failing tests")).toBe(
       "Resume this session: /tmp/rollout.json\n\nAfter resuming, continue with this request:\nfix the failing tests",
+    );
+  });
+});
+
+describe("buildForkPrompt", () => {
+  it("builds a fork prompt without extra user text", () => {
+    expect(buildForkPrompt("/tmp/rollout.json")).toBe(
+      "Fork this session into a new conversation: /tmp/rollout.json",
+    );
+  });
+
+  it("includes follow-up instructions when provided", () => {
+    expect(buildForkPrompt("/tmp/rollout.json", "try a different fix")).toBe(
+      "Fork this session into a new conversation: /tmp/rollout.json\n\nIn the forked conversation, continue with this request:\ntry a different fix",
     );
   });
 });

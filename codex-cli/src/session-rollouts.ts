@@ -120,6 +120,18 @@ export function buildResumePrompt(
   return `${base}\n\nAfter resuming, continue with this request:\n${trimmedPrompt}`;
 }
 
+export function buildForkPrompt(
+  sessionPath: string,
+  prompt?: string,
+): string {
+  const base = `Fork this session into a new conversation: ${sessionPath}`;
+  const trimmedPrompt = prompt?.trim();
+  if (!trimmedPrompt) {
+    return base;
+  }
+  return `${base}\n\nIn the forked conversation, continue with this request:\n${trimmedPrompt}`;
+}
+
 export function parseResumePositionalArgs(options: {
   positional: Array<string>;
   last?: boolean;

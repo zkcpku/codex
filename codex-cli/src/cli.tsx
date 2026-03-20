@@ -35,6 +35,7 @@ import {
 } from "./quiet-mode.js";
 import { buildReviewPlan } from "./review-command.js";
 import {
+  buildForkPrompt,
   buildResumePrompt,
   parseResumePositionalArgs,
   readRolloutFromFile,
@@ -76,6 +77,7 @@ const cli = meow(
   Usage
     $ codex [options] <prompt>
     $ codex resume [session] [prompt]
+    $ codex fork [session] [prompt]
     $ codex review [--uncommitted|--base <branch>|--commit <sha>] [prompt]
     $ codex completion <bash|zsh|fish>
 
@@ -342,7 +344,10 @@ let config = loadConfig(undefined, undefined, {
 const subcommand = cli.input[0];
 const reviewMode = subcommand === "review";
 const resumeMode = subcommand === "resume";
-let prompt = reviewMode || resumeMode ? cli.input.slice(1).join(" ").trim() : cli.input[0];
+const forkMode = subcommand === "fork";
+let prompt = reviewMode || resumeMode || forkMode
+  ? cli.input.slice(1).join(" ").trim()
+  : cli.input[0];
 if (prompt === "") {
   prompt = undefined;
 }
@@ -638,6 +643,59 @@ if (resumeMode) {
   if (sessionPath) {
     prompt = buildResumePrompt(sessionPath, resumePrompt);
   }
+}
+
+if (forkMode) {
+  const forkArgs = parseResumePositionalArgs({
+    positional: cli.input.slice(1),
+    last: Boolean(cli.flags.last),
+  });
+  let forkPrompt = forkArgs.prompt ?? "";
+  if (forkPrompt === "-") {
+    forkPrompt = fs.readFileSync(0, "utf8").trim();
+  }
+
+  const explicitSession = forkArgs.sessionIdOrPath;
+  let sessionPath: string | undefined;
+  if (explicitSession || cli.flags.last) {
+    sessionPath = await resolveSessionPath({
+      sessionIdOrPath: explicitSession,
+      last: Boolean(cli.flags.last),
+    });
+    if (!sessionPath) {
+      // eslint-disable-next-line no-console
+      console.error("Unable to resolve the requested session to fork.");
+      process.exit(1);
+    }
+  } else {
+    const result: { path: string; mode: "fork" } | null = await new Promise(
+      (resolve) => {
+        const instance = render(
+          React.createElement(SessionsOverlay, {
+            onView: () => {},
+            onResume: () => {},
+            onFork: (p: string) => {
+              instance.unmount();
+              resolve({ path: p, mode: "fork" });
+            },
+            modes: ["fork"],
+            initialMode: "fork",
+            onExit: () => {
+              instance.unmount();
+              resolve(null);
+            },
+          }),
+        );
+      },
+    );
+
+    if (!result) {
+      process.exit(0);
+    }
+    sessionPath = result.path;
+  }
+
+  prompt = buildForkPrompt(sessionPath, forkPrompt);
 }
 
 // For --fullcontext, run the separate cli entrypoint and exit.
